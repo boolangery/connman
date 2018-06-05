@@ -502,10 +502,18 @@ int __connman_connection_get_vpn_index(int phy_index);
 
 bool __connman_connection_update_gateway(void);
 
+#include "ntp.h"
+
 typedef void (*__connman_ntp_cb_t) (bool success, void *user_data);
+typedef void (*__connman_ntp_log_cb_t) (const struct ntp_query_status *entry);
 int __connman_ntp_start(char *server, __connman_ntp_cb_t callback,
 			void *user_data);
 void __connman_ntp_stop();
+struct ntp_query_status *__connman_ntp_get_last_log_entry();
+void __connman_ntp_set_log_entry_cb(__connman_ntp_log_cb_t callback);
+
+int __connman_ntp_service_init(void);
+void __connman_ntp_service_cleanup(void);
 
 int __connman_wpad_init(void);
 void __connman_wpad_cleanup(void);

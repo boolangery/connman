@@ -41,29 +41,9 @@
 
 #include "connman.h"
 
-struct ntp_short {
-	uint16_t seconds;
-	uint16_t fraction;
-} __attribute__ ((packed));
 
-struct ntp_time {
-	uint32_t seconds;
-	uint32_t fraction;
-} __attribute__ ((packed));
-
-struct ntp_msg {
-	uint8_t flags;			/* Mode, version and leap indicator */
-	uint8_t stratum;		/* Stratum details */
-	int8_t poll;			/* Maximum interval in log2 seconds */
-	int8_t precision;		/* Clock precision in log2 seconds */
-	struct ntp_short rootdelay;	/* Root delay */
-	struct ntp_short rootdisp;	/* Root dispersion */
-	uint32_t refid;			/* Reference ID */
-	struct ntp_time reftime;	/* Reference timestamp */
-	struct ntp_time orgtime;	/* Origin timestamp */
-	struct ntp_time rectime;	/* Receive timestamp */
-	struct ntp_time xmttime;	/* Transmit timestamp */
-} __attribute__ ((packed));
+static struct ntp_query_status last_log_entry;
+static __connman_ntp_log_cb_t on_log_entry_cb;
 
 #define OFFSET_1900_1970  2208988800UL	/* 1970 - 1900 in seconds */
 
@@ -267,13 +247,22 @@ static void decode_msg(struct ntp_data *nd, void *base, size_t len,
 	static guint transmit_delay;
 	struct timex tmx = {};
 
+	/* set last log entry header */
+	last_log_entry.timeserver = nd->timeserver;
+
 	if (len < sizeof(*msg)) {
-		connman_error("Invalid response from time server");
+	    last_log_entry.success = false;
+	    last_log_entry.status_msg = "Invalid response from time server";
+        on_log_entry_cb(&last_log_entry);
+		connman_error(last_log_entry.status_msg);
 		return;
 	}
 
 	if (!tv) {
-		connman_error("Invalid packet timestamp from time server");
+	    last_log_entry.success = false;
+	    last_log_entry.status_msg = "Invalid packet timestamp from time server";
+        on_log_entry_cb(&last_log_entry);
+		connman_error(last_log_entry.status_msg);
 		return;
 	}
 
@@ -303,7 +292,10 @@ static void decode_msg(struct ntp_data *nd, void *base, size_t len,
 	transmit_delay = LOGTOD(msg->poll);
 
 	if (NTP_FLAGS_LI_DECODE(msg->flags) == NTP_FLAG_LI_NOTINSYNC) {
-		DBG("ignoring unsynchronized peer");
+	    last_log_entry.success = false;
+	    last_log_entry.status_msg = "ignoring unsynchronized peer";
+        on_log_entry_cb(&last_log_entry);
+		DBG("%s", last_log_entry.status_msg);
 		nd->cb(false, nd->user_data);
 		return;
 	}
@@ -314,6 +306,9 @@ static void decode_msg(struct ntp_data *nd, void *base, size_t len,
 			DBG("requested version %d, accepting version %d",
 				NTP_FLAG_VN_VER4, NTP_FLAGS_VN_DECODE(msg->flags));
 		} else {
+		    last_log_entry.success = false;
+	        last_log_entry.status_msg = "unsupported version";
+            on_log_entry_cb(&last_log_entry);
 			DBG("unsupported version %d", NTP_FLAGS_VN_DECODE(msg->flags));
 			nd->cb(false, nd->user_data);
 			return;
@@ -321,6 +316,9 @@ static void decode_msg(struct ntp_data *nd, void *base, size_t len,
 	}
 
 	if (NTP_FLAGS_MD_DECODE(msg->flags) != NTP_FLAG_MD_SERVER) {
+	    last_log_entry.success = false;
+	    last_log_entry.status_msg = "unsupported mode";
+        on_log_entry_cb(&last_log_entry);
 		DBG("unsupported mode %d", NTP_FLAGS_MD_DECODE(msg->flags));
 		nd->cb(false, nd->user_data);
 		return;
@@ -392,13 +390,21 @@ static void decode_msg(struct ntp_data *nd, void *base, size_t len,
 		tmx.status |= STA_DEL;
 
 	if (adjtimex(&tmx) < 0) {
-		connman_error("Failed to adjust time");
+	    last_log_entry.success = false;
+	    last_log_entry.status_msg = "Failed to adjust time";
+        on_log_entry_cb(&last_log_entry);
+	    connman_error(last_log_entry.status_msg);
 		nd->cb(false, nd->user_data);
 		return;
 	}
 
 	DBG("interval/delta/delay/drift %fs/%+.3fs/%.3fs/%+ldppm",
 		LOGTOD(msg->poll), offset, delay, tmx.freq / 65536);
+
+	/* complete log entry with decoded msg */
+	last_log_entry.msg = *msg;
+	last_log_entry.success = true;
+	on_log_entry_cb(&last_log_entry);
 
 	nd->cb(true, nd->user_data);
 }
@@ -581,6 +587,19 @@ err:
 
 	nd->cb(false, nd->user_data);
 	return;
+}
+
+struct ntp_query_status *__connman_ntp_get_last_log_entry()
+{
+  return last_log_entry.timeserver == NULL ? NULL : &last_log_entry;
+}
+
+void __connman_ntp_set_log_entry_cb(__connman_ntp_log_cb_t callback)
+{
+	if (on_log_entry_cb != NULL)
+		connman_warn("on_log_entry_cb is not NULL, overriding");
+
+	on_log_entry_cb = callback;
 }
 
 int __connman_ntp_start(char *server, __connman_ntp_cb_t callback,

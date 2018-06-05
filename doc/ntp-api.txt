@@ -1,0 +1,43 @@
+Ntp hierarchy
+=============
+
+Service     net.connman
+Interface   net.connman.Ntp
+Object path /
+
+Methods     struct GetLastResponse()  [experimental]
+
+            Returns a log of the last ntp response.
+            An error is returned if no reponse has been received yet.
+
+            Possible Errors: [service].Error.NoDataAvailable
+
+			Signature: (sbsyynnuuutttt)
+
+			Response example:
+
+            struct {
+                string "178.209.53.202"       // timeserver in use
+                boolean true                  // response status, true=success, false=failure (see next string)
+                string "ok"                   // status message
+                byte 36                       // flags: LI, VN, Mode
+                byte 3                        // stratum
+                int16 -6134                   // poll (log2 value)
+                int16 232                     // precision (log2 seconds)
+                uint32 1560936448             // root delay
+                uint32 453771264              // root dispersion
+                uint32 669374037              // reference id
+                uint64 2662323866593182430    // reference timestamp (64-bit time-stamp format)
+                uint64 6963951586583691998    // origin timestamp (64-bit time-stamp format)
+                uint64 9451533143335420638    // receive timestamp (64-bit time-stamp format)
+                uint64 7228165600832832222    // transmit timestamp (64-bit time-stamp format)
+            }
+
+
+Signals		ResponseReceived(struct log)  [experimental]
+
+			This signal indicates that a new ntp response has been received.
+
+			Signature: (sbsyynnuuutttt)
+
+			See GetLastResponse() example response.
